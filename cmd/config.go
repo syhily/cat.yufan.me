@@ -2,14 +2,16 @@ package cmd
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"fmt"
 	"log"
 	"os"
 	"path/filepath"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/goccy/go-yaml"
 	"github.com/spf13/cobra"
-	"gopkg.in/yaml.v3"
 )
 
 func init() {
@@ -118,7 +120,6 @@ var (
 			}
 
 			encoder := yaml.NewEncoder(writer)
-			encoder.SetIndent(2)
 			err = encoder.Encode(&cs)
 			if err != nil {
 				log.Fatalf("Failed to generate the configuration file: %v\nError: %v", configFile, err)
@@ -147,6 +148,17 @@ type PandoraConfig struct {
 		AccessKey       string `yaml:"accessKey"`
 		AccessSecretKey string `yaml:"accessSecretKey"`
 	} `yaml:"s3"`
+}
+
+func (c *PandoraConfig) Retrieve(context.Context) (aws.Credentials, error) {
+	if c.S3.AccessKey == "" || c.S3.AccessSecretKey == "" {
+		return aws.Credentials{}, fmt.Errorf("no accessKey or AccessSecretKey is provided")
+	}
+
+	return aws.Credentials{
+		AccessKeyID:     c.S3.AccessKey,
+		SecretAccessKey: c.S3.AccessSecretKey,
+	}, nil
 }
 
 func DefaultConfigRoot() string {

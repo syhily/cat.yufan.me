@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/aws/smithy-go"
@@ -21,7 +20,10 @@ var (
 		Use:   "sync",
 		Short: "A tool for syncing files to UPYUN. A metadata file will be generated to track the synced files.",
 		Run: func(cmd *cobra.Command, args []string) {
-			log.Fatalf("The sync command is not implemented yet")
+			config := ReadConfig()
+			client := newBucketClient(config)
+
+			SyncDirectories(client, config, "images", "uploads")
 		},
 	}
 )
@@ -30,14 +32,18 @@ func init() {
 	rootCmd.AddCommand(syncCmd)
 }
 
-func newBucketClient() *BucketClient {
-	ctx := context.Background()
-	sdkConfig, err := config.LoadDefaultConfig(ctx)
-	if err != nil {
-		log.Println("Couldn't load default configuration. Have you set up your AWS account?")
-		log.Fatal(err)
-	}
-	client := s3.NewFromConfig(sdkConfig)
+func SyncDirectories(client *BucketClient, config *PandoraConfig, directories ...string) {
+	// Upload the files into the S3.
+
+	// Generate the image metadata JSON.
+}
+
+func newBucketClient(config *PandoraConfig) *BucketClient {
+	client := s3.NewFromConfig(aws.Config{
+		Region:       config.S3.Region,
+		BaseEndpoint: &config.S3.Endpoint,
+		Credentials:  config,
+	})
 	return &BucketClient{client: client}
 }
 
@@ -49,13 +55,13 @@ type BucketClient struct {
 	client *s3.Client
 }
 
-// UploadFile reads from a file and puts the data into an object in a bucket.
+// UploadObject reads from a file and puts the data into an object in a bucket.
 func (bucket BucketClient) UploadObject(ctx context.Context, bucketName string, objectKey string, fileName string) error {
 	file, err := os.Open(fileName)
 	if err != nil {
 		log.Printf("Couldn't open file %v to upload. Here's why: %v\n", fileName, err)
 	} else {
-		defer file.Close()
+		defer func() { _ = file.Close() }()
 		_, err = bucket.client.PutObject(ctx, &s3.PutObjectInput{
 			Bucket: aws.String(bucketName),
 			Key:    aws.String(objectKey),

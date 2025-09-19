@@ -133,44 +133,16 @@ func process(file *os.File, width, height int, format string, quality int, dt ti
 		log.Fatalf("Failed to read the image %s\nError: %v", file.Name(), err)
 	}
 
+	// Image conversion.
 	image := bimg.NewImage(bytes)
-
-	// Convert
-	var it bimg.ImageType
-	switch format {
-	case JPG:
-	case JPEG:
-		it = bimg.JPEG
-	case PNG:
-		it = bimg.PNG
-	case AVIF:
-		it = bimg.AVIF
-	case GIF:
-		it = bimg.GIF
-	case APNG:
-		it = bimg.PNG
-	case BMP:
-		it = bimg.JPEG
-	case WEBP:
-		it = bimg.WEBP
-	case SVG:
-		it = bimg.SVG
-	default:
-		it = bimg.JPEG
-	}
-	bytes, err = image.Convert(it)
-	if err != nil {
-		log.Fatalf("Failed to convert to format %v", bimg.ImageTypes[it])
-	}
-	image = bimg.NewImage(bytes)
-
-	// Process
+	it := imageType(format)
 	options := bimg.Options{
 		Width:   width,
 		Height:  height,
 		Crop:    false,
 		Quality: quality,
 		Rotate:  0,
+		Type:    it,
 	}
 	size, err := image.Size()
 	if err != nil {
@@ -193,6 +165,7 @@ func process(file *os.File, width, height int, format string, quality int, dt ti
 	if err != nil {
 		log.Fatalf("Failed to create the image directory: %v", err)
 	}
+
 	// Save image file.
 	filename := dt.Format("20060102") + time.Now().Format("150405") + fmt.Sprintf("%02d", time.Now().Nanosecond()%100) + "." + format
 	file, err = os.OpenFile(filepath.Join(directory, filename), os.O_WRONLY|os.O_CREATE|os.O_TRUNC, os.FileMode(0644))
@@ -204,4 +177,27 @@ func process(file *os.File, width, height int, format string, quality int, dt ti
 	if err != nil {
 		log.Fatalf("Failed to save image: %v", err)
 	}
+}
+
+func imageType(format string) bimg.ImageType {
+	switch format {
+	case JPG:
+	case JPEG:
+		return bimg.JPEG
+	case PNG:
+		return bimg.PNG
+	case AVIF:
+		return bimg.AVIF
+	case GIF:
+		return bimg.GIF
+	case APNG:
+		return bimg.PNG
+	case BMP:
+		return bimg.JPEG
+	case WEBP:
+		return bimg.WEBP
+	case SVG:
+		return bimg.SVG
+	}
+	return bimg.JPEG
 }

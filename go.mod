@@ -6,9 +6,9 @@ require (
 	github.com/aws/aws-sdk-go-v2 v1.39.0
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.88.1
 	github.com/aws/smithy-go v1.23.0
-	github.com/goccy/go-yaml v1.18.0
 	github.com/h2non/bimg v1.1.9
 	github.com/spf13/cobra v1.10.1
+	go.yaml.in/yaml/v4 v4.0.0-rc.2
 )
 
 require (

@@ -10,8 +10,8 @@ import (
 	"path/filepath"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/goccy/go-yaml"
 	"github.com/spf13/cobra"
+	"go.yaml.in/yaml/v4"
 )
 
 func init() {
@@ -120,6 +120,7 @@ var (
 			}
 
 			encoder := yaml.NewEncoder(writer)
+			encoder.SetIndent(2)
 			err = encoder.Encode(&cs)
 			if err != nil {
 				log.Fatalf("Failed to generate the configuration file: %v\nError: %v", configFile, err)

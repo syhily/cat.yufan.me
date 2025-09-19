@@ -80,20 +80,28 @@ var (
 				}
 			}
 
-			fmt.Println("Please input the s3 region (Optional)")
-			_, _ = fmt.Scanln(&s3Region)
+			for s3Region == "" && s3Endpoint == "" {
+				fmt.Println("Please input the s3 region (Optional)")
+				_, _ = fmt.Scanln(&s3Region)
 
-			fmt.Println("Please input the s3 endpoint (Optional)")
-			_, _ = fmt.Scanln(&s3Endpoint)
+				fmt.Println("Please input the s3 endpoint (Optional)")
+				_, _ = fmt.Scanln(&s3Endpoint)
+			}
 
-			fmt.Println("Please input the s3 bucket")
-			_, _ = fmt.Scanln(&s3Bucket)
+			for s3Bucket == "" {
+				fmt.Println("Please input the s3 bucket")
+				_, _ = fmt.Scanln(&s3Bucket)
+			}
 
-			fmt.Println("Please input the s3 access key")
-			_, _ = fmt.Scanln(&s3AccessKey)
+			for s3AccessKey == "" {
+				fmt.Println("Please input the s3 access key")
+				_, _ = fmt.Scanln(&s3AccessKey)
+			}
 
-			fmt.Println("Please input the s3 access secret key")
-			_, _ = fmt.Scanln(&s3AccessSecretKey)
+			for s3AccessSecretKey == "" {
+				fmt.Println("Please input the s3 access secret key")
+				_, _ = fmt.Scanln(&s3AccessSecretKey)
+			}
 
 			var cs = PandoraConfig{
 				ProjectRoot: projectRoot,

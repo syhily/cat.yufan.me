@@ -9,6 +9,7 @@ require (
 	github.com/h2non/bimg v1.1.9
 	github.com/spf13/cobra v1.10.1
 	go.yaml.in/yaml/v4 v4.0.0-rc.2
+	golang.design/x/clipboard v0.7.1
 )
 
 require (
@@ -22,4 +23,8 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/internal/s3shared v1.19.7 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/spf13/pflag v1.0.10 // indirect
+	golang.org/x/exp/shiny v0.0.0-20250911091902-df9299821621 // indirect
+	golang.org/x/image v0.31.0 // indirect
+	golang.org/x/mobile v0.0.0-20250911085028-6912353760cf // indirect
+	golang.org/x/sys v0.36.0 // indirect
 )

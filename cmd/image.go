@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/h2non/bimg"
 	"github.com/spf13/cobra"
+	"golang.design/x/clipboard"
 )
 
 const (
@@ -177,6 +179,13 @@ func process(file *os.File, width, height int, format string, quality int, dt ti
 	if err != nil {
 		log.Fatalf("Failed to save image: %v", err)
 	}
+
+	log.Printf("The image is saved into the [%v]\n", filepath.Join(directory, filename))
+	link, _ := url.JoinPath("https://cat.yufan.me/images", dt.Format("2006"), dt.Format("01"), filename)
+	log.Printf("You can use link for document [%v]\n", link)
+
+	// Save into clipboard
+	clipboard.Write(clipboard.FmtText, []byte(link))
 }
 
 func imageType(format string) bimg.ImageType {

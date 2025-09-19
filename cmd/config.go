@@ -126,7 +126,7 @@ var (
 
 			err = writer.Flush()
 			if err != nil {
-				panic(err)
+				log.Fatalf("Failed to write config file: %v", err)
 			}
 		},
 	}
@@ -152,15 +152,9 @@ type PandoraConfig struct {
 func DefaultConfigRoot() string {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		panic(err)
+		log.Fatalf("Failed to read user home directory %v", err)
 	}
-
-	p := filepath.Join(home, ".config", "pandora")
-	err = os.MkdirAll(p, 0o755)
-	if err != nil {
-		panic(err)
-	}
-	return p
+	return filepath.Join(home, ".config", "pandora")
 }
 
 // ReadConfig will load the yaml based configuration file and deserialize it into the target path.

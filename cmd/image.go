@@ -184,14 +184,14 @@ func process(file *os.File, width, height int, format string, quality int, dt ti
 	}
 	bytes, err = image.Process(options)
 	if err != nil {
-		panic(err)
+		log.Fatalf("Failed to convert the images: %v", err)
 	}
 
 	// Create directory.
 	directory := filepath.Join(target, "images", dt.Format("2006"), dt.Format("01"))
-	err = os.MkdirAll(directory, os.FileMode(755))
+	err = os.MkdirAll(directory, os.FileMode(0755))
 	if err != nil {
-		panic(err)
+		log.Fatalf("Failed to create the image directory: %v", err)
 	}
 	// Save image file.
 	filename := dt.Format("20060102") + time.Now().Format("150405") + fmt.Sprintf("%02d", time.Now().Nanosecond()%100) + "." + format

@@ -3,7 +3,7 @@ help:  ## Display this help
 		/^[a-zA-Z_-]+:.*?##/ { printf "  \033[36m%-10s\033[0m %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
 
 clean: ## Clean up build files.
-	rm -rf upyun
+	rm -rf pandora
 
 deps: ## Update vendor.
 	go mod verify
@@ -11,4 +11,4 @@ deps: ## Update vendor.
 	go get -u ./...
 
 build: clean ## Build executable files
-	go build -o upyun main.go
+	go build -o pandora main.go

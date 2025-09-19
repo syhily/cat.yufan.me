@@ -23,8 +23,8 @@ cpu_profile
 *.dll
 *.so
 *.dylib
-upyun
-upyun.*
+pandora
+pandora.*
 
 # Go releaser
 dist/

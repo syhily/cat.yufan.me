@@ -17,7 +17,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/aws/smithy-go"
-	endpoints "github.com/aws/smithy-go/endpoints"
 	"github.com/h2non/bimg"
 	"github.com/spf13/cobra"
 )
@@ -196,15 +195,9 @@ func UploadMetadata(bucket *BucketClient, config *PandoraConfig, metadata []Imag
 	}
 }
 
-type resolverV2 struct{}
-
-func (*resolverV2) ResolveEndpoint(ctx context.Context, params s3.EndpointParameters) (endpoints.Endpoint, error) {
-	return s3.NewDefaultEndpointResolverV2().ResolveEndpoint(ctx, params)
-}
-
 func newBucketClient(config *PandoraConfig) *BucketClient {
 	var client *s3.Client
-	if config.S3.Region != "" {
+	if config.S3.Endpoint == "" {
 		client = s3.NewFromConfig(aws.Config{
 			Region:      config.S3.Region,
 			Credentials: config,
@@ -215,7 +208,6 @@ func newBucketClient(config *PandoraConfig) *BucketClient {
 			Credentials: config,
 		}, func(o *s3.Options) {
 			o.BaseEndpoint = aws.String(config.S3.Endpoint)
-			o.EndpointResolverV2 = &resolverV2{}
 		})
 	}
 	return &BucketClient{Client: client}

@@ -88,6 +88,10 @@ var (
 				_, _ = fmt.Scanln(&s3Endpoint)
 			}
 
+			if s3Region == "" {
+				s3Region = "auto"
+			}
+
 			for s3Bucket == "" {
 				fmt.Println("Please input the s3 bucket")
 				_, _ = fmt.Scanln(&s3Bucket)

@@ -75,8 +75,7 @@ var (
 				log.Fatalf("The given path %s is a directory. Only image is accepted", imageSource)
 			}
 
-			ext := strings.ToLower(info.Name()[strings.LastIndex(info.Name(), ".")+1:])
-			if _, ok := supportExtensions[ext]; !ok {
+			if ok, ext := isSupportedImage(info.Name()); !ok {
 				log.Fatalf("Unsupported file extension %s. Allowed extensions: %s", ext, supportedFormats())
 			}
 
@@ -186,6 +185,12 @@ func process(file *os.File, width, height int, format string, quality int, dt ti
 
 	// Save into clipboard
 	clipboard.Write(clipboard.FmtText, []byte(link))
+}
+
+func isSupportedImage(name string) (bool, string) {
+	ext := strings.ToLower(name[strings.LastIndex(name, ".")+1:])
+	_, ok := supportExtensions[ext]
+	return ok, ext
 }
 
 func imageType(format string) bimg.ImageType {

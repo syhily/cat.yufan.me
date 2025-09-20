@@ -41,7 +41,7 @@ var (
 			var metas []ImageMetadata
 			ctx := context.TODO()
 			for _, directory := range []string{"images", "uploads"} {
-				r := SyncDirectory(ctx, client, config, filepath.Join(config.ProjectRoot, directory))
+				r := SyncDirectory(ctx, client, config.ProjectRoot, filepath.Join(config.ProjectRoot, directory))
 				if r != nil {
 					metas = append(metas, r...)
 				}
@@ -60,25 +60,25 @@ func init() {
 	rootCmd.AddCommand(syncCmd)
 }
 
-func SyncDirectory(ctx context.Context, client *BucketClient, config *PandoraConfig, directory string) []ImageMetadata {
+func SyncDirectory(ctx context.Context, client *BucketClient, root, path string) []ImageMetadata {
 	var metas []ImageMetadata
 	var wg sync.WaitGroup
 
-	if stat, err := os.Stat(directory); err != nil {
-		log.Printf("Failed to read current directory %v", directory)
+	if stat, err := os.Stat(path); err != nil {
+		log.Printf("Failed to read current directory %v", path)
 		return metas
 	} else if stat.IsDir() && !strings.HasPrefix(stat.Name(), ".") {
 		// Load the files/directories from the current directory.
-		files, e := os.ReadDir(directory)
+		files, e := os.ReadDir(path)
 		if e != nil {
-			log.Printf("Failed to read directory %v", directory)
+			log.Printf("Failed to read directory %v", path)
 			return metas
 		}
 
 		// Load the path prefix from AWS S3.
-		objs, e := client.ListObjects(ctx, config.S3.Bucket, directory[len(config.ProjectRoot):])
+		objs, e := client.ListObjects(ctx, path[len(root):])
 		if e != nil {
-			log.Printf("Failed to read directory from S3: %v\nError: %v", directory[len(config.ProjectRoot):], e)
+			log.Printf("Failed to read directory from S3: %v\nError: %v", path[len(root):], e)
 		}
 		awsMetas := map[string]int64{}
 		for _, obj := range objs {
@@ -95,7 +95,7 @@ func SyncDirectory(ctx context.Context, client *BucketClient, config *PandoraCon
 				wg.Add(1)
 				go func(subDir string) {
 					defer wg.Done()
-					m := SyncDirectory(ctx, client, config, filepath.Join(directory, subDir))
+					m := SyncDirectory(ctx, client, root, filepath.Join(path, subDir))
 					if m != nil {
 						resultChan <- m
 					}
@@ -117,10 +117,10 @@ func SyncDirectory(ctx context.Context, client *BucketClient, config *PandoraCon
 						return
 					}
 
-					key := filename[len(config.ProjectRoot)+1:]
+					key := filename[len(root)+1:]
 					if info.Size() != awsMetas[key] {
 						log.Printf("Try to upload the file [%v] into the aws s3", filename)
-						e2 = client.UploadObject(ctx, config.S3.Bucket, key, content)
+						e2 = client.UploadObject(ctx, key, content)
 						if e2 != nil {
 							log.Printf("Failed to upload the file %v to s3", filename)
 							return
@@ -130,12 +130,12 @@ func SyncDirectory(ctx context.Context, client *BucketClient, config *PandoraCon
 					}
 
 					if ok, _ := isSupportedImage(file.Name()); ok {
-						meta := ReadImageMetadata(filename, filename[len(config.ProjectRoot):], content)
+						meta := ReadImageMetadata(filename, filename[len(root):], content)
 						if meta != nil {
 							resultChan <- []ImageMetadata{*meta}
 						}
 					}
-				}(filepath.Join(directory, file.Name()))
+				}(filepath.Join(path, file.Name()))
 			}
 		}
 
@@ -233,7 +233,7 @@ func newBucketClient(config *PandoraConfig) *BucketClient {
 			o.BaseEndpoint = aws.String(config.S3.Endpoint)
 		})
 	}
-	return &BucketClient{Client: client}
+	return &BucketClient{Client: client, Bucket: config.S3.Bucket}
 }
 
 // BucketClient encapsulates the Amazon Simple Storage Service (Amazon S3) actions
@@ -242,12 +242,13 @@ func newBucketClient(config *PandoraConfig) *BucketClient {
 // and object actions.
 type BucketClient struct {
 	Client *s3.Client
+	Bucket string
 }
 
 // UploadObject reads from a file and puts the data into an object in a bucket.
-func (bucket BucketClient) UploadObject(ctx context.Context, bucketName string, objectKey string, content []byte) error {
+func (bucket *BucketClient) UploadObject(ctx context.Context, objectKey string, content []byte) error {
 	_, err := bucket.Client.PutObject(ctx, &s3.PutObjectInput{
-		Bucket: aws.String(bucketName),
+		Bucket: aws.String(bucket.Bucket),
 		Key:    aws.String(objectKey),
 		Body:   bytes.NewReader(content),
 	})
@@ -256,13 +257,13 @@ func (bucket BucketClient) UploadObject(ctx context.Context, bucketName string, 
 		if errors.As(err, &apiErr) && apiErr.ErrorCode() == "EntityTooLarge" {
 			log.Printf("Error while uploading object to %s. The object is too large.\n"+
 				"To upload objects larger than 5GB, use the S3 console (160GB max)\n"+
-				"or the multipart upload API (5TB max).", bucketName)
+				"or the multipart upload API (5TB max).", bucket.Bucket)
 		} else {
-			log.Printf("Couldn't upload file to %v:%v. Here's why: %v\n", bucketName, objectKey, err)
+			log.Printf("Couldn't upload file to %v:%v. Here's why: %v\n", bucket.Bucket, objectKey, err)
 		}
 	} else {
 		err = s3.NewObjectExistsWaiter(bucket.Client).Wait(
-			ctx, &s3.HeadObjectInput{Bucket: aws.String(bucketName), Key: aws.String(objectKey)}, time.Minute)
+			ctx, &s3.HeadObjectInput{Bucket: aws.String(bucket.Bucket), Key: aws.String(objectKey)}, time.Minute)
 		if err != nil {
 			log.Printf("Failed attempt to wait for object %s to exist.\n", objectKey)
 		}
@@ -271,12 +272,12 @@ func (bucket BucketClient) UploadObject(ctx context.Context, bucketName string, 
 }
 
 // ListObjects lists the objects in a bucket.
-func (bucket BucketClient) ListObjects(ctx context.Context, bucketName string, key string) ([]types.Object, error) {
+func (bucket *BucketClient) ListObjects(ctx context.Context, objectKey string) ([]types.Object, error) {
 	var err error
 	var output *s3.ListObjectsV2Output
 	input := &s3.ListObjectsV2Input{
-		Bucket: aws.String(bucketName),
-		Prefix: aws.String(key),
+		Bucket: aws.String(bucket.Bucket),
+		Prefix: aws.String(objectKey),
 	}
 	var objects []types.Object
 	objectPaginator := s3.NewListObjectsV2Paginator(bucket.Client, input)
@@ -285,7 +286,7 @@ func (bucket BucketClient) ListObjects(ctx context.Context, bucketName string, k
 		if err != nil {
 			var noBucket *types.NoSuchBucket
 			if errors.As(err, &noBucket) {
-				log.Printf("Bucket %s does not exist.\n", bucketName)
+				log.Printf("Bucket %s does not exist.\n", bucket.Bucket)
 				err = noBucket
 			}
 			break

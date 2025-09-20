@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -61,6 +62,7 @@ func init() {
 
 func SyncDirectory(ctx context.Context, client *BucketClient, config *PandoraConfig, directory string) []ImageMetadata {
 	var metas []ImageMetadata
+	var wg sync.WaitGroup
 
 	if stat, err := os.Stat(directory); err != nil {
 		log.Printf("Failed to read current directory %v", directory)
@@ -69,10 +71,11 @@ func SyncDirectory(ctx context.Context, client *BucketClient, config *PandoraCon
 		// Load the files/directories from the current directory.
 		files, e := os.ReadDir(directory)
 		if e != nil {
+			log.Printf("Failed to read directory %v", directory)
 			return metas
 		}
 
-		// Load the path prefix from AWS s3.
+		// Load the path prefix from AWS S3.
 		objs, e := client.ListObjects(ctx, config.S3.Bucket, directory[len(config.ProjectRoot):])
 		if e != nil {
 			log.Printf("Failed to read directory from S3: %v\nError: %v", directory[len(config.ProjectRoot):], e)
@@ -82,47 +85,67 @@ func SyncDirectory(ctx context.Context, client *BucketClient, config *PandoraCon
 			awsMetas[*obj.Key] = *obj.Size
 		}
 
-		// Range the files into the current directory.
+		// Range the files in the current directory.
+		resultChan := make(chan []ImageMetadata, len(files))
 		for _, file := range files {
 			if strings.HasPrefix(file.Name(), ".") {
 				continue
 			} else if file.IsDir() {
-				m := SyncDirectory(ctx, client, config, filepath.Join(directory, file.Name()))
-				if m != nil {
-					metas = append(metas, m...)
-				}
+				// Process directories concurrently.
+				wg.Add(1)
+				go func(subDir string) {
+					defer wg.Done()
+					m := SyncDirectory(ctx, client, config, filepath.Join(directory, subDir))
+					if m != nil {
+						resultChan <- m
+					}
+				}(file.Name())
 			} else {
-				// Upload the file if the file size is mismatch.
-				info, e1 := file.Info()
-				if e1 != nil {
-					log.Printf("Failed to read the file %v info", file.Name())
-					continue
-				}
+				// Process files concurrently.
+				wg.Add(1)
+				go func(filename string) {
+					defer wg.Done()
+					info, e1 := file.Info()
+					if e1 != nil {
+						log.Printf("Failed to read the file %v info", filename)
+						return
+					}
 
-				filename := filepath.Join(directory, file.Name())
-				content, e2 := os.ReadFile(filename)
-				log.Println("Try to sync file", filename)
-
-				if info.Size() != awsMetas[file.Name()] {
+					content, e2 := os.ReadFile(filename)
 					if e2 != nil {
 						log.Printf("Failed to read the file %v content", filename)
-						continue
+						return
 					}
 
-					e2 = client.UploadObject(ctx, config.S3.Bucket, filename[len(config.ProjectRoot):], content)
-					if e2 != nil {
-						log.Printf("Failed to upload the file %v to s3", filename)
-						continue
+					key := filename[len(config.ProjectRoot)+1:]
+					if info.Size() != awsMetas[key] {
+						log.Printf("Try to upload the file [%v] into the aws s3", filename)
+						e2 = client.UploadObject(ctx, config.S3.Bucket, key, content)
+						if e2 != nil {
+							log.Printf("Failed to upload the file %v to s3", filename)
+							return
+						}
+					} else {
+						log.Printf("Skip the existing file [%v] in aws s3", filename)
 					}
-				}
 
-				if ok, _ := isSupportedImage(file.Name()); ok {
-					meta := ReadImageMetadata(filename, filename[len(config.ProjectRoot):], content)
-					if meta != nil {
-						metas = append(metas, *meta)
+					if ok, _ := isSupportedImage(file.Name()); ok {
+						meta := ReadImageMetadata(filename, filename[len(config.ProjectRoot):], content)
+						if meta != nil {
+							resultChan <- []ImageMetadata{*meta}
+						}
 					}
-				}
+				}(filepath.Join(directory, file.Name()))
 			}
+		}
+
+		// Wait for all goroutines to finish processing
+		wg.Wait()
+		close(resultChan)
+
+		// Collect all metadata results from the channel
+		for result := range resultChan {
+			metas = append(metas, result...)
 		}
 	}
 

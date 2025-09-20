@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"io"
 	"log"
@@ -45,9 +46,10 @@ func init() {
 	imageCmd.Flags().StringVarP(&imageSource, "source", "s", "", "The image file path (absolute of relative)")
 	imageCmd.Flags().IntVarP(&width, "width", "", 1280, "The resized image width")
 	imageCmd.Flags().IntVarP(&height, "height", "", 0, "The optional image height, 0 for keep ratio")
-	imageCmd.Flags().StringVarP(&imageLocalDate, "time", "t", imageLocalDate, "The date time, in yyyyMMdd format")
+	imageCmd.Flags().StringVarP(&imageLocalDate, "time", "t", imageLocalDate, "The date time, in 20060102 format")
 	imageCmd.Flags().StringVarP(&imageFormat, "format", "f", JPG, "The image format")
 	imageCmd.Flags().IntVarP(&imageQuality, "quality", "q", 0, "The image quality")
+	imageCmd.Flags().BoolVarP(&uploadImage, "upload", "", true, "Whether to upload image")
 
 	err := imageCmd.MarkFlagRequired("source")
 	if err != nil {
@@ -106,7 +108,7 @@ var (
 				imageFormat = config.Convert.DefaultFormat
 			}
 
-			process(img, width, height, imageFormat, imageQuality, t, config.ProjectRoot)
+			process(img, width, height, t, config)
 		},
 	}
 
@@ -117,6 +119,7 @@ var (
 	imageLocalDatePattern = regexp.MustCompile(`^\d{8}$`)
 	imageFormat           = ""
 	imageQuality          = 0
+	uploadImage           = true
 )
 
 func supportedFormats() string {
@@ -128,7 +131,7 @@ func supportedFormats() string {
 	return strings.Join(extensions, ", ")
 }
 
-func process(file *os.File, width, height int, format string, quality int, dt time.Time, target string) {
+func process(file *os.File, width, height int, dt time.Time, config *PandoraConfig) {
 	bytes, err := io.ReadAll(file)
 	if err != nil {
 		log.Fatalf("Failed to read the image %s\nError: %v", file.Name(), err)
@@ -136,12 +139,12 @@ func process(file *os.File, width, height int, format string, quality int, dt ti
 
 	// Image conversion.
 	image := bimg.NewImage(bytes)
-	it := imageType(format)
+	it := imageType(imageFormat)
 	options := bimg.Options{
 		Width:   width,
 		Height:  height,
 		Crop:    false,
-		Quality: quality,
+		Quality: imageQuality,
 		Rotate:  0,
 		Type:    it,
 	}
@@ -161,14 +164,14 @@ func process(file *os.File, width, height int, format string, quality int, dt ti
 	}
 
 	// Create directory.
-	directory := filepath.Join(target, "images", dt.Format("2006"), dt.Format("01"))
+	directory := filepath.Join(config.ProjectRoot, "images", dt.Format("2006"), dt.Format("01"))
 	err = os.MkdirAll(directory, os.FileMode(0755))
 	if err != nil {
 		log.Fatalf("Failed to create the image directory: %v", err)
 	}
 
 	// Save image file.
-	filename := dt.Format("20060102") + time.Now().Format("150405") + fmt.Sprintf("%02d", time.Now().Nanosecond()%100) + "." + format
+	filename := dt.Format("20060102") + time.Now().Format("150405") + fmt.Sprintf("%02d", time.Now().Nanosecond()%100) + "." + imageFormat
 	file, err = os.OpenFile(filepath.Join(directory, filename), os.O_WRONLY|os.O_CREATE|os.O_TRUNC, os.FileMode(0644))
 	if err != nil {
 		log.Fatalf("Failed to generate the target image file: %v", filename)
@@ -180,11 +183,21 @@ func process(file *os.File, width, height int, format string, quality int, dt ti
 	}
 
 	log.Printf("The image is saved into the [%v]\n", filepath.Join(directory, filename))
-	link, _ := url.JoinPath("https://cat.yufan.me/images", dt.Format("2006"), dt.Format("01"), filename)
-	log.Printf("You can use link for document [%v]\n", link)
 
-	// Save into clipboard
-	clipboard.Write(clipboard.FmtText, []byte(link))
+	if uploadImage {
+		// Upload S3
+		client := newBucketClient(config)
+		err = client.UploadObject(context.TODO(), strings.ReplaceAll(filepath.Join(directory, filename)[len(config.ProjectRoot)+1:], string(filepath.Separator), "/"), bytes)
+		if err != nil {
+			log.Fatalf("Failed to upload the generated images to s3.\nError: %v", err)
+		}
+
+		link, _ := url.JoinPath("https://cat.yufan.me/images", dt.Format("2006"), dt.Format("01"), filename)
+		log.Printf("You can use link for document [%v]\n", link)
+		// Save into clipboard
+		clipboard.Write(clipboard.FmtText, []byte(link))
+	}
+
 }
 
 func isSupportedImage(name string) (bool, string) {

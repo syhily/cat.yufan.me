@@ -117,7 +117,7 @@ func SyncDirectory(ctx context.Context, client *BucketClient, root, path string)
 						return
 					}
 
-					key := filename[len(root)+1:]
+					key := strings.ReplaceAll(filename[len(root)+1:], string(filepath.Separator), "/")
 					if info.Size() != awsMetas[key] {
 						log.Printf("Try to upload the file [%v] into the aws s3", filename)
 						e2 = client.UploadObject(ctx, key, content)

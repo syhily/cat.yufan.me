@@ -1,11 +1,14 @@
 package cmd
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -15,15 +18,27 @@ import (
 	"github.com/spf13/cobra"
 )
 
+const (
+	BlurDataFormat    = `data:image/webp;base64,%s`
+	ImageMetadataFile = "images/metadata.json"
+)
+
 var (
 	syncCmd = &cobra.Command{
 		Use:   "sync",
 		Short: "A tool for syncing files to UPYUN. A metadata file will be generated to track the synced files.",
 		Run: func(cmd *cobra.Command, args []string) {
+			// Create S3 client.
 			config := ReadConfig()
 			client := newBucketClient(config)
 
-			SyncDirectories(client, config, "images", "uploads")
+			// Upload the files into the S3.
+			var metas []ImageMetadata
+			for _, directory := range []string{"images", "uploads"} {
+				metas = append(metas, SyncDirectory(client, filepath.Join(config.ProjectRoot, directory))...)
+			}
+
+			UploadMetadata(client, config, metas)
 		},
 	}
 )
@@ -32,19 +47,53 @@ func init() {
 	rootCmd.AddCommand(syncCmd)
 }
 
-func SyncDirectories(client *BucketClient, config *PandoraConfig, directories ...string) {
-	// Upload the files into the S3.
+func SyncDirectory(client *BucketClient, directory string) []ImageMetadata {
+	var metas []ImageMetadata
+	// TODO
+	return metas
+}
 
-	// Generate the image metadata JSON.
+type ImageMetadata struct {
+	Path        string `json:"path"`
+	Width       int    `json:"width"`
+	Height      int    `json:"height"`
+	BlurDataURL string `json:"blurDataURL"`
+}
+
+func UploadMetadata(bucket *BucketClient, config *PandoraConfig, metadata []ImageMetadata) {
+	var buf = new(bytes.Buffer)
+	encoder := json.NewEncoder(buf)
+	err := encoder.Encode(&metadata)
+	if err != nil {
+		log.Fatalf("Failed to generate the JSON file for image metadatas.")
+	}
+
+	// Upload the metadata JSON
+	ctx := context.TODO()
+
+	_, err = bucket.Client.PutObject(ctx, &s3.PutObjectInput{
+		Bucket: aws.String(config.S3.Bucket),
+		Key:    aws.String(ImageMetadataFile),
+		Body:   buf,
+	})
+	if err != nil {
+		log.Printf("Couldn't upload image meta file. Here's why: %v\n", err)
+	} else {
+		err = s3.NewObjectExistsWaiter(bucket.Client).Wait(
+			ctx, &s3.HeadObjectInput{Bucket: aws.String(config.S3.Bucket), Key: aws.String(ImageMetadataFile)}, time.Minute)
+		if err != nil {
+			log.Printf("Failed attempt to wait for image meta file %s to exist.\n", ImageMetadataFile)
+		}
+	}
 }
 
 func newBucketClient(config *PandoraConfig) *BucketClient {
 	client := s3.NewFromConfig(aws.Config{
 		Region:       config.S3.Region,
-		BaseEndpoint: &config.S3.Endpoint,
+		BaseEndpoint: aws.String(config.S3.Endpoint),
 		Credentials:  config,
 	})
-	return &BucketClient{client: client}
+	return &BucketClient{Client: client}
 }
 
 // BucketClient encapsulates the Amazon Simple Storage Service (Amazon S3) actions
@@ -52,7 +101,7 @@ func newBucketClient(config *PandoraConfig) *BucketClient {
 // It contains client, an Amazon S3 service client that is used to perform bucket
 // and object actions.
 type BucketClient struct {
-	client *s3.Client
+	Client *s3.Client
 }
 
 // UploadObject reads from a file and puts the data into an object in a bucket.
@@ -62,7 +111,7 @@ func (bucket BucketClient) UploadObject(ctx context.Context, bucketName string, 
 		log.Printf("Couldn't open file %v to upload. Here's why: %v\n", fileName, err)
 	} else {
 		defer func() { _ = file.Close() }()
-		_, err = bucket.client.PutObject(ctx, &s3.PutObjectInput{
+		_, err = bucket.Client.PutObject(ctx, &s3.PutObjectInput{
 			Bucket: aws.String(bucketName),
 			Key:    aws.String(objectKey),
 			Body:   file,
@@ -78,7 +127,7 @@ func (bucket BucketClient) UploadObject(ctx context.Context, bucketName string, 
 					fileName, bucketName, objectKey, err)
 			}
 		} else {
-			err = s3.NewObjectExistsWaiter(bucket.client).Wait(
+			err = s3.NewObjectExistsWaiter(bucket.Client).Wait(
 				ctx, &s3.HeadObjectInput{Bucket: aws.String(bucketName), Key: aws.String(objectKey)}, time.Minute)
 			if err != nil {
 				log.Printf("Failed attempt to wait for object %s to exist.\n", objectKey)
@@ -96,7 +145,7 @@ func (bucket BucketClient) ListObjects(ctx context.Context, bucketName string) (
 		Bucket: aws.String(bucketName),
 	}
 	var objects []types.Object
-	objectPaginator := s3.NewListObjectsV2Paginator(bucket.client, input)
+	objectPaginator := s3.NewListObjectsV2Paginator(bucket.Client, input)
 	for objectPaginator.HasMorePages() {
 		output, err = objectPaginator.NextPage(ctx)
 		if err != nil {
@@ -119,7 +168,7 @@ func (bucket BucketClient) DeleteObjects(ctx context.Context, bucketName string,
 	for _, key := range objectKeys {
 		objectIds = append(objectIds, types.ObjectIdentifier{Key: aws.String(key)})
 	}
-	output, err := bucket.client.DeleteObjects(ctx, &s3.DeleteObjectsInput{
+	output, err := bucket.Client.DeleteObjects(ctx, &s3.DeleteObjectsInput{
 		Bucket: aws.String(bucketName),
 		Delete: &types.Delete{Objects: objectIds, Quiet: aws.Bool(true)},
 	})
@@ -139,7 +188,7 @@ func (bucket BucketClient) DeleteObjects(ctx context.Context, bucketName string,
 		}
 	} else {
 		for _, delObjects := range output.Deleted {
-			err = s3.NewObjectNotExistsWaiter(bucket.client).Wait(
+			err = s3.NewObjectNotExistsWaiter(bucket.Client).Wait(
 				ctx, &s3.HeadObjectInput{Bucket: aws.String(bucketName), Key: delObjects.Key}, time.Minute)
 			if err != nil {
 				log.Printf("Failed attempt to wait for object %s to be deleted.\n", *delObjects.Key)

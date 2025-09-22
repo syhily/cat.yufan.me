@@ -267,12 +267,6 @@ func (bucket *BucketClient) UploadObject(ctx context.Context, objectKey string, 
 		} else {
 			log.Printf("Couldn't upload file to %v:%v. Here's why: %v\n", bucket.Bucket, objectKey, err)
 		}
-	} else {
-		err = s3.NewObjectExistsWaiter(bucket.Client).Wait(
-			ctx, &s3.HeadObjectInput{Bucket: aws.String(bucket.Bucket), Key: aws.String(objectKey)}, time.Minute)
-		if err != nil {
-			log.Printf("Failed attempt to wait for object %s to exist.\n", objectKey)
-		}
 	}
 	return err
 }

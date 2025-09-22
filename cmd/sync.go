@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"mime"
 	"os"
 	"path/filepath"
 	"strings"
@@ -54,9 +55,12 @@ var (
 			log.Println("Successfully upload the image metadata")
 		},
 	}
+
+	forceUpload = false
 )
 
 func init() {
+	syncCmd.Flags().BoolVarP(&forceUpload, "force", "", false, "Force upload the files to S3")
 	rootCmd.AddCommand(syncCmd)
 }
 
@@ -118,7 +122,7 @@ func SyncDirectory(ctx context.Context, client *BucketClient, root, path string)
 					}
 
 					key := strings.ReplaceAll(filename[len(root)+1:], string(filepath.Separator), "/")
-					if info.Size() != awsMetas[key] {
+					if info.Size() != awsMetas[key] || forceUpload {
 						log.Printf("Try to upload the file [%v] into the aws s3", filename)
 						e2 = client.UploadObject(ctx, key, content)
 						if e2 != nil {
@@ -203,9 +207,10 @@ func UploadMetadata(bucket *BucketClient, config *PandoraConfig, metadata []Imag
 	ctx := context.TODO()
 
 	_, err = bucket.Client.PutObject(ctx, &s3.PutObjectInput{
-		Bucket: aws.String(config.S3.Bucket),
-		Key:    aws.String(ImageMetadataFile),
-		Body:   buf,
+		Bucket:      aws.String(config.S3.Bucket),
+		Key:         aws.String(ImageMetadataFile),
+		Body:        buf,
+		ContentType: aws.String("application/json"),
 	})
 	if err != nil {
 		log.Printf("Couldn't upload image meta file. Here's why: %v\n", err)
@@ -248,9 +253,10 @@ type BucketClient struct {
 // UploadObject reads from a file and puts the data into an object in a bucket.
 func (bucket *BucketClient) UploadObject(ctx context.Context, objectKey string, content []byte) error {
 	_, err := bucket.Client.PutObject(ctx, &s3.PutObjectInput{
-		Bucket: aws.String(bucket.Bucket),
-		Key:    aws.String(objectKey),
-		Body:   bytes.NewReader(content),
+		Bucket:      aws.String(bucket.Bucket),
+		Key:         aws.String(objectKey),
+		Body:        bytes.NewReader(content),
+		ContentType: aws.String(mime.TypeByExtension(objectKey[strings.LastIndex(objectKey, ".")+1:])),
 	})
 	if err != nil {
 		var apiErr smithy.APIError

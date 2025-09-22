@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"mime"
 	"os"
 	"path/filepath"
 	"strings"
@@ -20,6 +19,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/aws/smithy-go"
 	"github.com/h2non/bimg"
+	"github.com/qingstor/go-mime"
 	"github.com/spf13/cobra"
 )
 
@@ -40,9 +40,8 @@ var (
 
 			// Upload the files into the S3.
 			var metas []ImageMetadata
-			ctx := context.TODO()
 			for _, directory := range []string{"images", "uploads"} {
-				r := SyncDirectory(ctx, client, config.ProjectRoot, filepath.Join(config.ProjectRoot, directory))
+				r := SyncDirectory(client, config.ProjectRoot, filepath.Join(config.ProjectRoot, directory))
 				if r != nil {
 					metas = append(metas, r...)
 				}
@@ -64,7 +63,7 @@ func init() {
 	rootCmd.AddCommand(syncCmd)
 }
 
-func SyncDirectory(ctx context.Context, client *BucketClient, root, path string) []ImageMetadata {
+func SyncDirectory(client *BucketClient, root, path string) []ImageMetadata {
 	var metas []ImageMetadata
 	var wg sync.WaitGroup
 
@@ -80,7 +79,7 @@ func SyncDirectory(ctx context.Context, client *BucketClient, root, path string)
 		}
 
 		// Load the path prefix from AWS S3.
-		objs, e := client.ListObjects(ctx, path[len(root):])
+		objs, e := client.ListObjects(context.TODO(), path[len(root):])
 		if e != nil {
 			log.Printf("Failed to read directory from S3: %v\nError: %v", path[len(root):], e)
 		}
@@ -99,7 +98,7 @@ func SyncDirectory(ctx context.Context, client *BucketClient, root, path string)
 				wg.Add(1)
 				go func(subDir string) {
 					defer wg.Done()
-					m := SyncDirectory(ctx, client, root, filepath.Join(path, subDir))
+					m := SyncDirectory(client, root, filepath.Join(path, subDir))
 					if m != nil {
 						resultChan <- m
 					}
@@ -123,8 +122,8 @@ func SyncDirectory(ctx context.Context, client *BucketClient, root, path string)
 
 					key := strings.ReplaceAll(filename[len(root)+1:], string(filepath.Separator), "/")
 					if info.Size() != awsMetas[key] || forceUpload {
-						log.Printf("Try to upload the file [%v] into the aws s3", filename)
-						e2 = client.UploadObject(ctx, key, content)
+						log.Printf("Try to upload the file [%v] to the aws s3", filename)
+						e2 = client.UploadObject(context.TODO(), key, content)
 						if e2 != nil {
 							log.Printf("Failed to upload the file %v to s3", filename)
 							return
@@ -256,7 +255,7 @@ func (bucket *BucketClient) UploadObject(ctx context.Context, objectKey string, 
 		Bucket:      aws.String(bucket.Bucket),
 		Key:         aws.String(objectKey),
 		Body:        bytes.NewReader(content),
-		ContentType: aws.String(mime.TypeByExtension(objectKey[strings.LastIndex(objectKey, ".")+1:])),
+		ContentType: aws.String(mime.DetectFileExt(objectKey[strings.LastIndex(objectKey, ".")+1:])),
 	})
 	if err != nil {
 		var apiErr smithy.APIError

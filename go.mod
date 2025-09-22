@@ -7,6 +7,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.88.1
 	github.com/aws/smithy-go v1.23.0
 	github.com/h2non/bimg v1.1.9
+	github.com/qingstor/go-mime v0.1.0
 	github.com/spf13/cobra v1.10.1
 	go.yaml.in/yaml/v4 v4.0.0-rc.2
 	golang.design/x/clipboard v0.7.1

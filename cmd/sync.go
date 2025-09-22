@@ -252,10 +252,11 @@ type BucketClient struct {
 // UploadObject reads from a file and puts the data into an object in a bucket.
 func (bucket *BucketClient) UploadObject(ctx context.Context, objectKey string, content []byte) error {
 	_, err := bucket.Client.PutObject(ctx, &s3.PutObjectInput{
-		Bucket:      aws.String(bucket.Bucket),
-		Key:         aws.String(objectKey),
-		Body:        bytes.NewReader(content),
-		ContentType: aws.String(mime.DetectFileExt(objectKey[strings.LastIndex(objectKey, ".")+1:])),
+		Bucket:        aws.String(bucket.Bucket),
+		Key:           aws.String(objectKey),
+		Body:          bytes.NewReader(content),
+		ContentType:   aws.String(mime.DetectFileExt(objectKey[strings.LastIndex(objectKey, ".")+1:])),
+		ContentLength: aws.Int64(int64(len(content))),
 	})
 	if err != nil {
 		var apiErr smithy.APIError

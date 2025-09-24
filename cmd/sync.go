@@ -18,6 +18,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/aws/smithy-go"
+	"github.com/aws/smithy-go/middleware"
+	"github.com/aws/smithy-go/transport/http"
 	"github.com/h2non/bimg"
 	"github.com/qingstor/go-mime"
 	"github.com/spf13/cobra"
@@ -122,6 +124,13 @@ func SyncDirectory(client *BucketClient, root, path string) []ImageMetadata {
 
 					key := strings.ReplaceAll(filename[len(root)+1:], string(filepath.Separator), "/")
 					if info.Size() != awsMetas[key] || forceUpload {
+						if awsMetas[key] == 0 {
+							e2 = client.DeleteObjects(context.TODO(), ImageMetadataFile)
+							if e2 != nil {
+								log.Printf("Failed to remove the old file %s", key)
+							}
+						}
+
 						log.Printf("Try to upload the file [%v] to the aws s3", filename)
 						e2 = client.UploadObject(context.TODO(), key, content)
 						if e2 != nil {
@@ -195,9 +204,7 @@ type ImageMetadata struct {
 }
 
 func UploadMetadata(bucket *BucketClient, config *PandoraConfig, metadata []ImageMetadata) {
-	var buf = new(bytes.Buffer)
-	encoder := json.NewEncoder(buf)
-	err := encoder.Encode(&metadata)
+	bs, err := json.Marshal(&metadata)
 	if err != nil {
 		log.Fatalf("Failed to generate the JSON file for image metadatas.")
 	}
@@ -205,11 +212,17 @@ func UploadMetadata(bucket *BucketClient, config *PandoraConfig, metadata []Imag
 	// Upload the metadata JSON
 	ctx := context.TODO()
 
+	err = bucket.DeleteObjects(ctx, ImageMetadataFile)
+	if err != nil {
+		log.Printf("Error in deleting the image metadata, %v", err)
+	}
+
 	_, err = bucket.Client.PutObject(ctx, &s3.PutObjectInput{
-		Bucket:      aws.String(config.S3.Bucket),
-		Key:         aws.String(ImageMetadataFile),
-		Body:        buf,
-		ContentType: aws.String("application/json"),
+		Bucket:        aws.String(config.S3.Bucket),
+		Key:           aws.String(ImageMetadataFile),
+		Body:          bytes.NewReader(bs),
+		ContentLength: aws.Int64(int64(len(bs))),
+		ContentType:   aws.String("application/json"),
 	})
 	if err != nil {
 		log.Printf("Couldn't upload image meta file. Here's why: %v\n", err)
@@ -228,6 +241,10 @@ func newBucketClient(config *PandoraConfig) *BucketClient {
 		client = s3.NewFromConfig(aws.Config{
 			Region:      config.S3.Region,
 			Credentials: config,
+		}, func(o *s3.Options) {
+			o.APIOptions = append(o.APIOptions, func(stack *middleware.Stack) error {
+				return http.AddContentChecksumMiddleware(stack)
+			})
 		})
 	} else {
 		client = s3.NewFromConfig(aws.Config{
@@ -235,6 +252,9 @@ func newBucketClient(config *PandoraConfig) *BucketClient {
 			Credentials: config,
 		}, func(o *s3.Options) {
 			o.BaseEndpoint = aws.String(config.S3.Endpoint)
+			o.APIOptions = append(o.APIOptions, func(stack *middleware.Stack) error {
+				return http.AddContentChecksumMiddleware(stack)
+			})
 		})
 	}
 	return &BucketClient{Client: client, Bucket: config.S3.Bucket}
@@ -301,4 +321,40 @@ func (bucket *BucketClient) ListObjects(ctx context.Context, objectKey string) (
 		}
 	}
 	return objects, err
+}
+
+// DeleteObjects deletes a list of objects from a bucket.
+func (bucket BucketClient) DeleteObjects(ctx context.Context, objectKeys ...string) error {
+	var objectIds []types.ObjectIdentifier
+	for _, key := range objectKeys {
+		objectIds = append(objectIds, types.ObjectIdentifier{Key: aws.String(key)})
+	}
+	output, err := bucket.Client.DeleteObjects(ctx, &s3.DeleteObjectsInput{
+		Bucket: aws.String(bucket.Bucket),
+		Delete: &types.Delete{Objects: objectIds, Quiet: aws.Bool(true)},
+	})
+	if err != nil || len(output.Errors) > 0 {
+		if err != nil {
+			var noBucket *types.NoSuchBucket
+			if errors.As(err, &noBucket) {
+				err = noBucket
+			}
+		} else if len(output.Errors) > 0 {
+			for _, outErr := range output.Errors {
+				log.Printf("%s: %s\n", *outErr.Key, *outErr.Message)
+			}
+			err = fmt.Errorf("%s", *output.Errors[0].Message)
+		}
+	} else {
+		for _, delObjects := range output.Deleted {
+			err = s3.NewObjectNotExistsWaiter(bucket.Client).Wait(
+				ctx, &s3.HeadObjectInput{Bucket: aws.String(bucket.Bucket), Key: delObjects.Key}, time.Minute)
+			if err != nil {
+				log.Printf("Failed attempt to wait for object %s to be deleted.\n", *delObjects.Key)
+			} else {
+				log.Printf("Deleted %s.\n", *delObjects.Key)
+			}
+		}
+	}
+	return err
 }

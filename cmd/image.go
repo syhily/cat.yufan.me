@@ -192,7 +192,7 @@ func process(file *os.File, width, height int, dt time.Time, config *PandoraConf
 			log.Fatalf("Failed to upload the generated images to s3.\nError: %v", err)
 		}
 
-		link, _ := url.JoinPath("https://cat.yufan.me/images", dt.Format("2006"), dt.Format("01"), filename)
+		link, _ := url.JoinPath("https://cdn.yufan.me/images", dt.Format("2006"), dt.Format("01"), filename)
 		log.Printf("You can use link for document [%v]\n", link)
 		// Save into clipboard
 		clipboard.Write(clipboard.FmtText, []byte(link))

@@ -1,6 +1,6 @@
 # UPYUN Image Store
 
-This is a repository for storing and uploading the images to [UPYUN](https://cat.yufan.me).
+This is a repository for storing and uploading the images to [UPYUN](https://cdn.yufan.me).
 
 ## Configure Tools
 

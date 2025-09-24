@@ -1,6 +1,6 @@
 package main
 
-import "github.com/syhily/cdn.yufan.me/cmd"
+import "github.com/syhily/pandora/cmd"
 
 func main() {
 	cmd.Execute()

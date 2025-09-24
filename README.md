@@ -1,4 +1,4 @@
-# UPYUN Image Store
+# Blog Attachments Store
 
 This is a repository for storing and uploading the images to [UPYUN](https://cdn.yufan.me).
 
@@ -34,7 +34,7 @@ Flags:
       --width int       The resized image width (default 1280)
 ```
 
-### Upload Images
+### Upload Attachments
 
 ```text
 pandora sync -h

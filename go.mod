@@ -1,4 +1,4 @@
-module github.com/syhily/cdn.yufan.me
+module github.com/syhily/pandora
 
 go 1.25.1
 

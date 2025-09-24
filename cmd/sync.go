@@ -178,7 +178,7 @@ func ReadImageMetadata(file, key string, content []byte) *ImageMetadata {
 		}
 		blur := base64.StdEncoding.EncodeToString(b)
 		return &ImageMetadata{
-			Path:        key,
+			Slug:        key,
 			Width:       size.Width,
 			Height:      size.Height,
 			BlurDataURL: fmt.Sprintf(BlurDataFormat, blur),
@@ -188,7 +188,7 @@ func ReadImageMetadata(file, key string, content []byte) *ImageMetadata {
 }
 
 type ImageMetadata struct {
-	Path        string `json:"path"`
+	Slug        string `json:"slug"`
 	Width       int    `json:"width"`
 	Height      int    `json:"height"`
 	BlurDataURL string `json:"blurDataURL"`

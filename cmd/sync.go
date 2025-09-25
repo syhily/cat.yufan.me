@@ -204,10 +204,14 @@ type ImageMetadata struct {
 }
 
 func UploadMetadata(bucket *BucketClient, config *PandoraConfig, metadata []ImageMetadata) {
-	bs, err := json.Marshal(&metadata)
+	var out strings.Builder
+	enc := json.NewEncoder(&out)
+	enc.SetIndent("", "  ")
+	err := enc.Encode(&metadata)
 	if err != nil {
 		log.Fatalf("Failed to generate the JSON file for image metadatas.")
 	}
+	bs := []byte(out.String())
 
 	// Upload the metadata JSON
 	ctx := context.TODO()

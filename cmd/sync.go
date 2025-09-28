@@ -81,7 +81,7 @@ func SyncDirectory(client *BucketClient, root, path string) []ImageMetadata {
 		}
 
 		// Load the path prefix from AWS S3.
-		objs, e := client.ListObjects(context.TODO(), path[len(root):])
+		objs, e := client.ListObjects(context.TODO(), path[len(root)+1:])
 		if e != nil {
 			log.Printf("Failed to read directory from S3: %v\nError: %v", path[len(root):], e)
 		}
@@ -115,22 +115,19 @@ func SyncDirectory(client *BucketClient, root, path string) []ImageMetadata {
 						log.Printf("Failed to read the file %v info", filename)
 						return
 					}
-
+					key := strings.ReplaceAll(filename[len(root)+1:], string(filepath.Separator), "/")
 					content, e2 := os.ReadFile(filename)
 					if e2 != nil {
 						log.Printf("Failed to read the file %v content", filename)
 						return
 					}
-
-					key := strings.ReplaceAll(filename[len(root)+1:], string(filepath.Separator), "/")
-					if info.Size() != awsMetas[key] || forceUpload {
-						if awsMetas[key] == 0 {
-							e2 = client.DeleteObjects(context.TODO(), ImageMetadataFile)
-							if e2 != nil {
-								log.Printf("Failed to remove the old file %s", key)
-							}
+					if ok, _ := isSupportedImage(file.Name()); ok {
+						meta := ReadImageMetadata(filename, filename[len(root):], content)
+						if meta != nil {
+							resultChan <- []ImageMetadata{*meta}
 						}
-
+					}
+					if info.Size() != awsMetas[key] || forceUpload {
 						log.Printf("Try to upload the file [%v] to the aws s3", filename)
 						e2 = client.UploadObject(context.TODO(), key, content)
 						if e2 != nil {
@@ -139,13 +136,6 @@ func SyncDirectory(client *BucketClient, root, path string) []ImageMetadata {
 						}
 					} else {
 						log.Printf("Skip the existing file [%v] in aws s3", filename)
-					}
-
-					if ok, _ := isSupportedImage(file.Name()); ok {
-						meta := ReadImageMetadata(filename, filename[len(root):], content)
-						if meta != nil {
-							resultChan <- []ImageMetadata{*meta}
-						}
 					}
 				}(filepath.Join(path, file.Name()))
 			}
@@ -215,12 +205,6 @@ func UploadMetadata(bucket *BucketClient, config *PandoraConfig, metadata []Imag
 
 	// Upload the metadata JSON
 	ctx := context.TODO()
-
-	err = bucket.DeleteObjects(ctx, ImageMetadataFile)
-	if err != nil {
-		log.Printf("Error in deleting the image metadata, %v", err)
-	}
-
 	_, err = bucket.Client.PutObject(ctx, &s3.PutObjectInput{
 		Bucket:        aws.String(config.S3.Bucket),
 		Key:           aws.String(ImageMetadataFile),
@@ -325,40 +309,4 @@ func (bucket *BucketClient) ListObjects(ctx context.Context, objectKey string) (
 		}
 	}
 	return objects, err
-}
-
-// DeleteObjects deletes a list of objects from a bucket.
-func (bucket BucketClient) DeleteObjects(ctx context.Context, objectKeys ...string) error {
-	var objectIds []types.ObjectIdentifier
-	for _, key := range objectKeys {
-		objectIds = append(objectIds, types.ObjectIdentifier{Key: aws.String(key)})
-	}
-	output, err := bucket.Client.DeleteObjects(ctx, &s3.DeleteObjectsInput{
-		Bucket: aws.String(bucket.Bucket),
-		Delete: &types.Delete{Objects: objectIds, Quiet: aws.Bool(true)},
-	})
-	if err != nil || len(output.Errors) > 0 {
-		if err != nil {
-			var noBucket *types.NoSuchBucket
-			if errors.As(err, &noBucket) {
-				err = noBucket
-			}
-		} else if len(output.Errors) > 0 {
-			for _, outErr := range output.Errors {
-				log.Printf("%s: %s\n", *outErr.Key, *outErr.Message)
-			}
-			err = fmt.Errorf("%s", *output.Errors[0].Message)
-		}
-	} else {
-		for _, delObjects := range output.Deleted {
-			err = s3.NewObjectNotExistsWaiter(bucket.Client).Wait(
-				ctx, &s3.HeadObjectInput{Bucket: aws.String(bucket.Bucket), Key: delObjects.Key}, time.Minute)
-			if err != nil {
-				log.Printf("Failed attempt to wait for object %s to be deleted.\n", *delObjects.Key)
-			} else {
-				log.Printf("Deleted %s.\n", *delObjects.Key)
-			}
-		}
-	}
-	return err
 }
